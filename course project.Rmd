@@ -1,0 +1,134 @@
+---
+title: "Predictive machine leraning course project"
+output:
+  html_document:
+    self_contained: no
+---
+
+###Introduction
+
+Data has been collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.  
+Each participant perform one set of 10 repetitions of Biceps Curl in five different ways:  
+
+1. Exactly according to the specification (Class A)  
+2. Throwing the elbows to the front (Class B)  
+3. Lifting the dumbbell only halfway (Class C)  
+4. Lowering the dumbbell only halfway (Class D)  
+5. Throwing the hips to the front (Class E)  
+
+The goal of the project is to predict the class (A-E) in which the participants did the exercise. These levels are provided only in the training dataset (and not in the testing dataset).  
+In this report we will applied a random forest model in order to predict the classe for each of the 20 observations provided in the testing dataset.
+ 
+###Data
+
+The data for this course project is obtained from this source: http://groupware.les.inf.puc-rio.br/har  
+
+###Download and read the training and test data   
+       
+```{r, echo=FALSE}
+setwd("~/Dropbox/Courses/r/predmachlearn-007/course project")
+```
+
+
+```{r, cache=T}
+fileURL1 <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileURL2 <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+```
+
+```{r, echo=FALSE,cache=T}
+destfile1 <- "~/Dropbox/Courses/r/predmachlearn-007/course project/pml-training.csv"
+destfile2 <- "~/Dropbox/Courses/r/predmachlearn-007/course project/pml-testing.csv"
+```
+
+```{r}
+download.file(fileURL1, destfile1, method="curl")
+training_data <- read.csv(fileURL1,header=T)
+
+download.file(fileURL2,destfile2,  method="curl")
+test_data <- read.csv(fileURL2,header=T)
+
+```
+
+The training set contains 19622 observations of 160 variables.
+
+###Exploratory Analysis and data cleaning.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(randomForest)
+library(caret)
+set.seed(333) 
+```
+
+```{r}
+indexes = which(lapply(training_data,class) %in% c('numeric'))
+
+model_impute <- preProcess(training_data[,indexes], method=c('knnImpute'))
+training <- predict(model_impute, training_data[,indexes])
+
+training$classe <- training_data$classe
+dim(training)
+```
+
+Keep only predictors that are numeric (except the outcome classe) and impute all NA's values with k-nearest neighbors algorithm, by applying "model_impute" on the training data.
+Add back the outcome "classe" to the dataset (column "classe"" has previously been dropped since it is a factor)
+The number of predictors has now gone down to 89 and all columns are complete, with no missing values. 
+
+Execute the same pre-processing on the testing dataset.
+
+```{r}
+testing <- predict(model_impute, test_data[,indexes])
+testing$problem_id <- test_data$problem_id
+```
+
+### Build and train a model using Random forest
+
+Create an additional test set to estimate the errors of the model, by
+spliting the training_data into a training set (70%), and a testing set(30%).
+
+```{r, cache=T}
+trainIndex = createDataPartition(y=training$classe, p = 0.70,list=FALSE)
+training_subset = training[trainIndex,]
+testing_additional = training[-trainIndex,]
+```
+
+Save the random forest classifier with save(). This allows us to later load the saved model, and apply the model to new, independent samples for classification purposes, without re-building the model.
+
+```{r, cache=T}
+model_rf <- randomForest(classe ~ ., data = training_subset)
+save(model_rf, file="RF_model")
+load("RF_model")
+```
+
+Applied the random forest on the given test dataset.
+The result are stored in answers, and then pass in to the function pml_write_files that saved the result in 20 different output files.
+
+```{r, echo=T, results='hide'} 
+answers <- predict(model_rf, testing)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(as.character(answers))
+
+```
+
+### Performance of the model
+
+```{r} 
+model_rf$confusion
+```
+
+### Cross Validation on independent dataset
+
+Now instead of estimated performance from out-of-bag (OOB) when applying model on training set, we will apply the model on the additional independent testset to estimate the actual performance.
+
+```{r} 
+prediction.test <- predict(model_rf, testing_additional)
+confusionMatrix(testing_additional$classe, prediction.test)$table
+error.prediction.test <- sum(testing_additional$classe!=prediction.test)/length(prediction.test)
+```
+
+The out of sample error rate estimate of the model is `r error.prediction.test*100`%
